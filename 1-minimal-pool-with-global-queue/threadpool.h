@@ -55,14 +55,11 @@ void *worker_thread(void *arg)
         }
 
         // Extract work from the circular buffer
-        // TODO: Read the task at q->tasks[q->head] into a local variable (e.g., current_task)
-        // TODO: Advance q->head. (Hint: Use modulo arithmetic to wrap around: (head + 1) % capacity)
-        // TODO: Decrement q->count
-
-        task_t current_task; /* assign this from your array */
+        task_t current_task = q->tasks[q->head];
+        q->head = (q->head + 1) % q->capacity;
+        q->count--;
 
         // CRITICAL: Release the lock BEFORE executing the function.
-        // If you hold the lock during execution, you serialize your entire program!
         pthread_mutex_unlock(&q->lock);
 
         // Execute the task
@@ -72,4 +69,27 @@ void *worker_thread(void *arg)
         }
     }
     return NULL;
+}
+
+bool submit_task(global_queue_t *q, void (*func)(void *), void *arg)
+{
+    pthread_mutex_lock(&q->lock);
+
+    if (q->count == q->capacity)
+    {
+        pthread_mutex_unlock(&q->lock);
+        return false;
+    }
+
+    q->tasks[q->tail].function = func;
+    q->tasks[q->tail].arg = arg;
+
+    q->tail = (q->tail + 1) % q->capacity;
+
+    q->count++;
+
+    pthread_cond_signal(&q->notify);
+
+    pthread_mutex_unlock(&q->lock);
+    return true;
 }
