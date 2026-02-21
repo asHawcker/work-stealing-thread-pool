@@ -93,3 +93,23 @@ bool submit_task(global_queue_t *q, void (*func)(void *), void *arg)
     pthread_mutex_unlock(&q->lock);
     return true;
 }
+
+void queue_initiate_shutdown(global_queue_t *q)
+{
+    pthread_mutex_lock(&q->lock);
+    q->shutdown = true;
+    pthread_cond_broadcast(&q->notify); // wakeup sleeping threads
+    pthread_mutex_unlock(&q->lock);
+}
+
+void queue_destroy(global_queue_t *q)
+{
+    pthread_mutex_destroy(&q->lock);
+    pthread_cond_destroy(&q->notify);
+
+    if (q->tasks)
+    {
+        free(q->tasks);
+        q->tasks = NULL;
+    }
+}
