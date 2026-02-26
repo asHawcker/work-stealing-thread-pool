@@ -1,59 +1,48 @@
+#ifndef THREADPOOL_H
+#define THREADPOOL_H
+
 #include <pthread.h>
 #include <stdbool.h>
-#include <stdalign.h>
 
+// Task representation
 typedef struct
 {
     void (*function)(void *arg);
     void *arg;
 } task_t;
 
-typedef struct
+// Per-thread Deque (Aligned to prevent False Sharing)
+typedef struct __attribute__((aligned(64)))
 {
     task_t *tasks;
     int capacity;
     int top;
     int bottom;
     pthread_mutex_t lock;
-} worker_queue_t __attribute__((aligned(64)));
+} worker_queue_t;
 
+// Global Pool State
 typedef struct
 {
     worker_queue_t *queues;
     int num_workers;
-
     bool shutdown;
 
     pthread_mutex_t sleep_lock;
     pthread_cond_t sleep_notify;
 } thread_pool_t;
 
-void local_push(worker_queue_t *queue, task_t task)
+// Struct to pass arguments to the worker thread
+typedef struct
 {
-    pthread_mutex_lock(&queue->lock);
-    if (queue->bottom < queue->capacity)
-    {
-        queue->tasks[queue->bottom] = task;
-        queue->bottom++;
-    }
-    pthread_mutex_unlock(&queue->lock);
-}
+    thread_pool_t *pool;
+    int worker_id;
+} worker_args_t;
 
-bool local_pop(worker_queue_t *queue, task_t *out_task)
-{
-    pthread_mutex_lock(&queue->lock);
+// Core API
+void pool_init(thread_pool_t *pool, int num_workers, int queue_capacity);
+bool submit_task(thread_pool_t *pool, void (*func)(void *), void *arg);
+void *worker_thread(void *arg);
+void pool_destroy(thread_pool_t *pool);
 
-    if (queue->bottom > queue->top)
-    {
-        queue->bottom--;
-        *out_task = queue->tasks[queue->bottom];
-
-        pthread_mutex_unlock(&queue->lock);
-        return true;
-    }
-    else
-    {
-        pthread_mutex_unlock(&queue->lock);
-        return false;
-    }
-}
+#endif // THREADPOOL_H
