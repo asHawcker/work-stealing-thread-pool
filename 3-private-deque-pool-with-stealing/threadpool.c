@@ -1,6 +1,7 @@
 #include "threadpool.h"
 #include <stdlib.h>
 #include <stdio.h>
+#include <sched.h>
 
 void pool_init(thread_pool_t *pool, int num_workers, int queue_capacity)
 {
@@ -35,28 +36,36 @@ void pool_init(thread_pool_t *pool, int num_workers, int queue_capacity)
 
 bool submit_task(thread_pool_t *pool, void (*func)(void *), void *arg)
 {
-    int target_worker = rand() % pool->num_workers;
-    worker_queue_t *target_queue = &pool->queues[target_worker];
-
     task_t new_task;
     new_task.function = func;
     new_task.arg = arg;
 
-    pthread_mutex_lock(&target_queue->lock);
-    if (target_queue->bottom >= target_queue->capacity)
+    int MAX_RETRIES = 3;
+
+    while (true)
     {
-        pthread_mutex_unlock(&target_queue->lock);
-        return false;
+        for (int i = 0; i < MAX_RETRIES; i++)
+        {
+
+            int target_worker = rand() % pool->num_workers;
+            worker_queue_t *target_queue = &pool->queues[target_worker];
+
+            pthread_mutex_lock(&target_queue->lock);
+            if (target_queue->bottom < target_queue->capacity)
+            {
+                target_queue->tasks[target_queue->bottom] = new_task;
+                target_queue->bottom++;
+                pthread_mutex_unlock(&target_queue->lock);
+
+                pthread_mutex_lock(&pool->sleep_lock);
+                pthread_cond_signal(&pool->sleep_notify);
+                pthread_mutex_unlock(&pool->sleep_lock);
+                return true;
+            }
+            pthread_mutex_unlock(&target_queue->lock);
+        }
+        sched_yield();
     }
-    target_queue->tasks[target_queue->bottom] = new_task;
-    target_queue->bottom++;
-    pthread_mutex_unlock(&target_queue->lock);
-
-    pthread_mutex_lock(&pool->sleep_lock);
-    pthread_cond_signal(&pool->sleep_notify);
-    pthread_mutex_unlock(&pool->sleep_lock);
-
-    return true;
 }
 
 void *worker_thread(void *arg)
