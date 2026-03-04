@@ -1,17 +1,19 @@
-## Problems
+- Please read the README in 2-private-deque-pool too
 
-1. False Sharing
-   If we create an array of the per-thread queues:
-   `worker_queue_t queues[NUM_WORKERS];`
+## Extras Added
 
-   In C, arrays are contiguous in memory. If `sizeof(worker_queue_t)` is 32 bytes, then `queues[0]` and `queues[1]` will sit directly next to each other.
+1. **The Work-Stealing Model**
 
-   Modern CPUs fetch memory from RAM into their L1/L2 caches in 64-byte chunks called Cache Lines.
+   Until now, the Owner thread has been pushing and popping from the bottom of its queue. This behaves like a Stack (LIFO), which is good for CPU cache locality because the Owner is always working with the most recently accessed memory.
+   When an Owner runs out of work, it becomes a Thief. The Thief will select a victim queue, but it will not steal from the bottom. It will steal from the top (FIFO).
 
-   If Thread 0 is hammering `queues[0].bottom` and Thread 1 is hammering `queues[1].bottom`, and both structs happen to live on the same 64-byte cache line, the physical CPU cores will constantly invalidate each other's L1 caches. Even though they are technically accessing completely different memory addresses, the hardware would treat it as a collision. It's like we removed **lock contention**, but now we have accidentally created **cache contention**.
+   _Why steal from the top?_
+   - Minimizing Contention: The Owner operates at the bottom. The Thief operates at the top. Most of the time, they are looking at completely different parts of the array. Even though the Thief locks the victim's mutex, the Owner usually acquires and releases that same mutex so fast that the Thief rarely has to wait long.
 
-   To fix this, we pad our structs to align with the CPU cache lines using C11's `alignas(64)` (or compiler attributes) to force the allocator to place each `worker_queue_t` exactly 64 bytes apart.
+   - Work Granularity: Tasks at the top of the queue are the oldest tasks. In many recursive parallel workloads (like sorting or graph traversal), older tasks will spawn many smaller sub-tasks. By stealing from the top, the Thief grabs a massive chunk of work, bringing it to its own local queue, which prevents it from needing to steal again anytime soon.
 
-2. Which thread's queue should I add task to?
+2. **Victim Selection Strategy**
 
-   If the main thread locked every queue to check its bottom index just to find the least busy worker, it would completely serialize the system and create a bottleneck. So we allocate the task by generating a random index and blindly pushing the task to that specific worker's queue, we achieve _O(1)_ statistical load balancing with zero cross-thread coordination. This also goes well with the work stealing logic.
+   _If Thread A is starving, who does it steal from?_
+   _Do we check every queue to find the one with the most tasks?_
+   No, That requires taking multiple locks and inspecting global state, which creates a massive bottleneck. So we use Random Victim Selection. The Thief randomly picks a peer's ID. If that peer has work, it steals one task. If not, it picks another random peer. Mathematically, randomized work-stealing provides near-perfect load balancing with $O(1)$ decision-making overhead.
