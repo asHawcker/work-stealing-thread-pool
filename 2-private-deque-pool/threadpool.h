@@ -45,4 +45,4 @@ bool submit_task(thread_pool_t *pool, void (*func)(void *), void *arg);
 void *worker_thread(void *arg);
 void pool_destroy(thread_pool_t *pool);
 
-#endif // THREADPOOL_H
+#endif
