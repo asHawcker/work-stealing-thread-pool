@@ -20,8 +20,7 @@ void stress_task(void *arg)
     // atomic_fetch_add returns the OLD value, so we add 1 to get the current count
     int current = atomic_fetch_add(&total_executed, 1) + 1;
 
-    // PERIODIC SAMPLING: Only print every 50,000 tasks
-    if (current % 5000 == 0)
+    if (current % 50000 == 0)
     {
         struct timeval tv;
         gettimeofday(&tv, NULL);

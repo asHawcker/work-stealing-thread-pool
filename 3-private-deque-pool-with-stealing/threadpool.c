@@ -51,9 +51,9 @@ bool submit_task(thread_pool_t *pool, void (*func)(void *), void *arg)
             worker_queue_t *target_queue = &pool->queues[target_worker];
 
             pthread_mutex_lock(&target_queue->lock);
-            if (target_queue->bottom < target_queue->capacity)
+            if (target_queue->bottom - target_queue->top < target_queue->capacity)
             {
-                target_queue->tasks[target_queue->bottom] = new_task;
+                target_queue->tasks[target_queue->bottom % target_queue->capacity] = new_task;
                 target_queue->bottom++;
                 pthread_mutex_unlock(&target_queue->lock);
 
@@ -85,7 +85,7 @@ void *worker_thread(void *arg)
         if (my_queue->bottom > my_queue->top)
         {
             my_queue->bottom--;
-            current_task = my_queue->tasks[my_queue->bottom];
+            current_task = my_queue->tasks[my_queue->bottom % my_queue->capacity];
             has_work = true;
         }
         pthread_mutex_unlock(&my_queue->lock);
@@ -160,7 +160,7 @@ bool steal_task(thread_pool_t *pool, int my_id, task_t *out_task)
         if (victim_queue->bottom > victim_queue->top)
         {
 
-            *out_task = victim_queue->tasks[victim_queue->top];
+            *out_task = victim_queue->tasks[victim_queue->top % victim_queue->capacity];
             victim_queue->top++;
 
             pthread_mutex_unlock(&victim_queue->lock);
